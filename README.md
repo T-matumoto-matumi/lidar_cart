@@ -71,14 +71,30 @@ ros2 launch lidar_cart sim.launch.py gui:=false
 
 ## トラブルシューティング
 
-### GazeboやRviz2がクラッシュする場合 (D3D12エラー)
-WSL2環境で `D3D12: Removing Device` エラーや `Segmentation fault` で落ちる場合、GPUドライバとの相性問題が原因です。以下の環境変数を設定してソフトウェアレンダリングを強制することで改善します。
+### GazeboやRviz2がクラッシュする場合 (WSL2 / D3D12エラー)
+WSL2環境で `[gzclient-2] D3D12: Removing Device` エラーなどでGazeboが落ちる場合、GPUドライバとWSL2のMesaライブラリの間で互換性の問題が発生しています。
 
+**方法1: OpenGLバージョンを偽装する (GPUを使用・推奨)**
+GPUのハードウェアアクセラレーションを有効にしたまま、OpenGLのバージョンを特定のものに固定（オーバーライド）することで解決する場合があります。
+```bash
+# 実行前に環境変数をセット
+export MESA_GL_VERSION_OVERRIDE=4.5
+export MESA_GLSL_VERSION_OVERRIDE=450
+
+ros2 launch lidar_cart sim.launch.py
+```
+永続化するには `.bashrc` に追記してください:
+```bash
+echo 'export MESA_GL_VERSION_OVERRIDE=4.5' >> ~/.bashrc
+echo 'export MESA_GLSL_VERSION_OVERRIDE=450' >> ~/.bashrc
+source ~/.bashrc
+```
+
+**方法2: ソフトウェアレンダリングを強制する (フォールバック)**
+上記で解決しない場合、GPUを使わずCPUで描画させます（動作は重くなります）。
 ```bash
 export LIBGL_ALWAYS_SOFTWARE=1
 ros2 launch lidar_cart sim.launch.py
-# または
-rviz2
 ```
 
 ### プロセスがゾンビ化した場合 (Address already in use)
