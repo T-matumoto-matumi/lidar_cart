@@ -1,0 +1,101 @@
+<?xml version="1.0"?>
+<robot name="four_ws_cart" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Includes -->
+  <xacro:include filename="$(find lidar_cart)/urdf/lidar.xacro"/>
+
+  <!-- Properties -->
+  <xacro:property name="chassis_length" value="0.3"/>
+  <xacro:property name="chassis_width" value="0.2"/>
+  <xacro:property name="chassis_height" value="0.1"/>
+  <xacro:property name="wheel_radius" value="0.05"/>
+  <xacro:property name="wheel_width" value="0.02"/>
+
+  <!-- Base Footprint -->
+  <link name="base_footprint"/>
+
+  <joint name="base_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 ${wheel_radius}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Base Link -->
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <box size="${chassis_length} ${chassis_width} ${chassis_height}"/>
+      </geometry>
+      <origin xyz="0 0 ${chassis_height/2}" rpy="0 0 0"/>
+      <material name="orange">
+        <color rgba="1.0 0.5 0.0 1"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="${chassis_length} ${chassis_width} ${chassis_height}"/>
+      </geometry>
+      <origin xyz="0 0 ${chassis_height/2}" rpy="0 0 0"/>
+    </collision>
+    <inertial>
+      <mass value="2.0"/>
+      <origin xyz="0 0 ${chassis_height/2}"/>
+      <inertia ixx="0.01" ixy="0" ixz="0" iyy="0.01" iyz="0" izz="0.01"/>
+    </inertial>
+  </link>
+
+  <!-- Wheels Macro -->
+  <xacro:macro name="wheel" params="prefix x_offset y_offset">
+    <link name="${prefix}_wheel">
+      <visual>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+        </geometry>
+        <material name="black">
+          <color rgba="0 0 0 1"/>
+        </material>
+      </visual>
+      <collision>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.5"/>
+        <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+      </inertial>
+    </link>
+
+    <joint name="${prefix}_wheel_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="${prefix}_wheel"/>
+      <origin xyz="${x_offset} ${y_offset} 0" rpy="${-pi/2} 0 0"/> 
+    </joint>
+    
+    <gazebo reference="${prefix}_wheel">
+      <mu1>0.0</mu1>
+      <mu2>0.0</mu2>
+      <material>Gazebo/Black</material>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:wheel prefix="front_left" x_offset="${chassis_length/2 - 0.05}" y_offset="${chassis_width/2 + wheel_width/2}"/>
+  <xacro:wheel prefix="front_right" x_offset="${chassis_length/2 - 0.05}" y_offset="-${chassis_width/2 + wheel_width/2}"/>
+  <xacro:wheel prefix="rear_left"  x_offset="-${chassis_length/2 - 0.05}" y_offset="${chassis_width/2 + wheel_width/2}"/>
+  <xacro:wheel prefix="rear_right" x_offset="-${chassis_length/2 - 0.05}" y_offset="-${chassis_width/2 + wheel_width/2}"/>
+
+  <!-- Lidar -->
+  <xacro:lidar_sensor parent_link="base_link" x_offset="0" z_offset="${chassis_height + 0.02}"/>
+
+  <!-- Planar Move Plugin -->
+  <gazebo>
+    <plugin name="object_controller" filename="libgazebo_ros_planar_move.so">
+      <command_topic>cmd_vel</command_topic>
+      <odometry_topic>odom</odometry_topic>
+      <odometry_frame>odom</odometry_frame>
+      <odometry_rate>20.0</odometry_rate>
+      <robot_base_frame>base_footprint</robot_base_frame>
+    </plugin>
+  </gazebo>
+
+</robot>
