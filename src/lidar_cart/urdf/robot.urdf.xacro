@@ -4,6 +4,8 @@
   <!-- Includes -->
   <xacro:include filename="$(find lidar_cart)/urdf/lidar.xacro"/>
   <xacro:include filename="$(find lidar_cart)/urdf/gazebo_control.xacro"/>
+  <xacro:include filename="$(find lidar_cart)/urdf/camera.xacro"/>
+  <xacro:include filename="$(find lidar_cart)/urdf/imu.xacro"/>
 
   <!-- Properties -->
   <xacro:property name="chassis_length" value="0.3"/>
@@ -142,6 +144,12 @@
 
   <!-- Lidar -->
   <xacro:lidar_sensor parent_link="base_link" x_offset="${chassis_length/2 - 0.05}" z_offset="${chassis_height + 0.02}"/>
+
+  <!-- Camera -->
+  <xacro:camera_sensor parent_link="base_link" x_offset="${chassis_length/2}" z_offset="${chassis_height}"/>
+
+  <!-- IMU -->
+  <xacro:imu_sensor parent_link="base_link" x_offset="0" y_offset="0" z_offset="${chassis_height/2}"/>
 
   <!-- Gazebo Control -->
   <xacro:diff_drive_controller wheel_separation="${wheel_separation}" wheel_radius="${wheel_radius}"/>

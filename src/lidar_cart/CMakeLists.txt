@@ -15,10 +15,29 @@ ament_target_dependencies(drive_node rclcpp geometry_msgs)
 install(TARGETS drive_node
   DESTINATION lib/${PROJECT_NAME})
 
+install(PROGRAMS
+  scripts/mcl_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME mcl_node
+)
+
+install(PROGRAMS
+  scripts/global_planner.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME global_planner
+)
+
+install(PROGRAMS
+  scripts/local_planner.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME local_planner
+)
+
 install(DIRECTORY
   launch
   urdf
   worlds
+  maps
   DESTINATION share/${PROJECT_NAME}
 )
 

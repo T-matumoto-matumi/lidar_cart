@@ -53,7 +53,13 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time', default='true')
     use_gui = LaunchConfiguration('gui', default='true')
     robot_model = LaunchConfiguration('robot_model', default='diff_drive')
-    world_path = os.path.join(pkg_lidar_cart, 'worlds', 'obstacle.world')
+    world_arg = LaunchConfiguration('world', default='obstacle.world')
+    world_path = PythonExpression(["'", os.path.join(pkg_lidar_cart, 'worlds'), "/' + '", world_arg, "'"])
+
+    declare_world_cmd = DeclareLaunchArgument(
+        'world',
+        default_value='obstacle.world',
+        description='World file name in worlds directory (e.g., obstacle.world, square_room.world)')
 
     declare_gui_cmd = DeclareLaunchArgument(
         'gui',
@@ -100,6 +106,7 @@ def generate_launch_description():
     opaque_func = OpaqueFunction(function=launch_setup)
 
     return LaunchDescription([
+        declare_world_cmd,
         declare_gui_cmd,
         declare_model_cmd,
         declare_sim_time_cmd,

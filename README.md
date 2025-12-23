@@ -7,9 +7,13 @@ ROS 2 Humble環境で動作する、2D LiDAR搭載ロボットのGazeboシミュ
 - **対向二輪モデル (Diff Drive)**: 2輪 + キャスター構成
 - **4WSモデル (Omnidirectional)**: 4輪独立ステア（シミュレーション上はPlanar Moveによる全方向移動）
 - 2D LiDAR (Gazebo Ray Sensor) 搭載
+- **[NEW] カメラ (Camera)**: ロボット前方に搭載、トピック `/camera/image_raw`
+- **[NEW] IMU**: ロボット中心に搭載、トピック `/imu/data`
 - 基本的な障害物環境 (`obstacle.world`)
 - 円軌道を描く自動走行ノード (`drive_node`)
 - 手動操縦モード (`teleop_twist_keyboard` 対応)
+- **[NEW] 地図作成 (SLAM)**: `slam_toolbox` を使用したオンラインSLAM
+- **[NEW] 自己位置推定 (MCL)**: パーティクルフィルタによる位置推定 (Nav2 Map Server連携)
 
 ## 動作環境
 - **OS**: Linux (WSL2対応)
@@ -65,6 +69,76 @@ WSL2などでGUIが重い、またはクラッシュする場合は、GUIなし�
 
 ```bash
 ros2 launch lidar_cart sim.launch.py gui:=false
+```
+
+### 4. テスト環境の変更 (5x5m ルーム)
+壁に囲まれた5m四方の部屋でテストを行う場合は `world` 引数を指定します。
+
+```bash
+ros2 launch lidar_cart sim.launch.py world:=square_room.world
+```
+
+
+### 5. 地図作成 (SLAM)
+
+`slam_toolbox` を使用して地図を作成します。
+
+```bash
+ros2 launch lidar_cart mapping.launch.py
+```
+
+Rviz2が起動するので、左下の「Reset」ボタンを押してロボットの位置をリセットし、Teleopでロボットを走行させて地図を作成してください。
+
+地図の保存 (ターミナル2):
+```bash
+ros2 run nav2_map_server map_saver_cli -f maps/my_map
+```
+
+### 6. 自己位置推定 (MCL)
+
+作成した地図上での自己位置推定を行います。
+
+```bash
+ros2 launch lidar_cart mcl.launch.py
+```
+
+**Rviz2の設定**:
+初回起動時はRviz2の設定が空の場合があります。以下のTopicを追加してください。
+- Map: `/map` (Durability Policy: **Transient Local** を指定)
+- PoseArray: `/particle_cloud`
+- LaserScan: `/scan`
+- RobotModel
+- TF
+
+**初期位置合わせ**:
+Rviz2上部の「2D Pose Estimate」を使用し、ロボットの初期位置を指定してください。パーティクルが収束し、ロボットが地図上の正しい位置に表示されれば成功です。
+
+### 7. ナビゲーション (自動走行)
+
+A* (Global Planner) と DWA (Local Planner) を用いた自律移動を行います。
+
+```bash
+ros2 launch lidar_cart navigation.launch.py
+```
+
+**操作手順**:
+1. Rviz2が起動したら、まず **「2D Pose Estimate」** で初期位置を合わせます。
+2. 次に **「2D Nav Goal」** をクリックし、地図上の目的地をクリック＆ドラッグ（向きを指定）します。
+3. Global Plannerが緑色のパスを生成し、Local Plannerがそれに従ってロボットを走行させます。
+
+-------------
+
+### センサーデータの確認
+
+**カメラ画像**:
+```bash
+ros2 run rqt_image_view rqt_image_view
+```
+または `rqt` を起動して `/camera/image_raw` を表示してください。
+
+**IMUデータ**:
+```bash
+ros2 topic echo /imu/data
 ```
 
 -------------
