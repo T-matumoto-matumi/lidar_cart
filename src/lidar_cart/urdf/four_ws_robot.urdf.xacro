@@ -87,7 +87,7 @@
   <xacro:wheel prefix="rear_right" x_offset="-${chassis_length/2 - 0.05}" y_offset="-${chassis_width/2 + wheel_width/2}"/>
 
   <!-- Lidar -->
-  <xacro:lidar_sensor parent_link="base_link" x_offset="0" z_offset="${chassis_height + 0.02}"/>
+  <xacro:lidar_sensor parent_link="base_link" x_offset="0" z_offset="${chassis_height + 0.1}"/>
 
   <!-- Camera -->
   <xacro:camera_sensor parent_link="base_link" x_offset="${chassis_length/2}" z_offset="${chassis_height}"/>

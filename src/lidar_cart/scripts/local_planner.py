@@ -82,27 +82,43 @@ class LocalPlanner(Node):
             return None
 
     def control_loop(self):
-        if self.global_path is None or self.scan_data is None or self.current_velocity is None:
+        # デバッグログ: 各条件をチェック
+        if self.global_path is None:
+            self.get_logger().debug('No global path received yet')
+            return
+        if self.scan_data is None:
+            self.get_logger().debug('No scan data received yet')
+            return
+        if self.current_velocity is None:
+            self.get_logger().debug('No velocity data received yet')
             return
             
         self.current_pose = self.get_robot_pose()
         if self.current_pose is None:
+            self.get_logger().debug('Failed to get robot pose from TF')
             return
             
+        # Obstacles
+        obstacles = self.get_obstacles(self.current_pose)
+            
         # DWA Calculation here
-        best_u = self.dwa_search(self.current_pose, self.current_velocity)
+        best_u = self.dwa_search(self.current_pose, self.current_velocity, obstacles)
         
         # Publish Command
         cmd = Twist()
         cmd.linear.x = float(best_u[0])
         cmd.angular.z = float(best_u[1])
         self.cmd_vel_pub.publish(cmd)
+        self.get_logger().debug(f'Publishing cmd_vel: v={best_u[0]:.3f}, w={best_u[1]:.3f}')
         
-    def dwa_search(self, x, u):
+    def dwa_search(self, x, u, obstacles):
         # x: [x, y, theta], u: [v, w]
         
         # Dynamic Window
         dw = self.calc_dynamic_window(u)
+        
+        # デバッグログ: Dynamic Windowの範囲
+        self.get_logger().debug(f'Dynamic Window: v=[{dw[0]:.3f}, {dw[1]:.3f}], w=[{dw[2]:.3f}, {dw[3]:.3f}]')
         
         # Search for best u
         min_cost = float('inf')
@@ -117,17 +133,24 @@ class LocalPlanner(Node):
         # Get goal point (Lookahead on global path)
         goal = self.get_local_goal(x)
         if goal is None:
+            self.get_logger().warn('No local goal found, stopping')
             return [0.0, 0.0]
         
         # Loop
-        for v in np.arange(dw[0], dw[1], v_reso):
-            for w in np.arange(dw[2], dw[3], y_reso):
+        evaluated_count = 0
+        # np.arangeは終了値を含まないため、十分な探索範囲を確保
+        # 範囲が小さい場合でも最低限の探索を保証
+        v_samples = max(int((dw[1] - dw[0]) / v_reso) + 1, 1)
+        w_samples = max(int((dw[3] - dw[2]) / y_reso) + 1, 1)
+        
+        for v in np.linspace(dw[0], dw[1], v_samples):
+            for w in np.linspace(dw[2], dw[3], w_samples):
                 traj = self.predict_trajectory(x, v, w)
                 
                 # Calculate Costs
                 to_goal_cost = self.get_parameter('to_goal_cost_gain').value * self.calc_to_goal_cost(traj, goal)
                 speed_cost = self.get_parameter('speed_cost_gain').value * (self.get_parameter('max_speed').value - traj[-1, 3])
-                ob_cost = self.get_parameter('obstacle_cost_gain').value * self.calc_obstacle_cost(traj)
+                ob_cost = self.get_parameter('obstacle_cost_gain').value * self.calc_obstacle_cost(traj, obstacles)
                 
                 final_cost = to_goal_cost + speed_cost + ob_cost
                 
@@ -135,6 +158,10 @@ class LocalPlanner(Node):
                     min_cost = final_cost
                     best_u = [v, w]
                     best_traj = traj
+                
+                evaluated_count += 1
+        
+        self.get_logger().debug(f'Evaluated {evaluated_count} trajectories, best cost: {min_cost:.3f}, best_u: v={best_u[0]:.3f}, w={best_u[1]:.3f}')
         
         # Publish local plan for debug
         if best_traj is not None:
@@ -166,6 +193,16 @@ class LocalPlanner(Node):
         w_min = max(vs[2], vd[2])
         w_max = min(vs[3], vd[3])
         
+        # ガード: 範囲が不正な場合は現在の速度を中心とした最小限の範囲を返す
+        if v_min > v_max:
+            self.get_logger().warn(f'Invalid velocity window: v_min={v_min:.3f} > v_max={v_max:.3f}, using current velocity')
+            v_min = u[0]
+            v_max = u[0]
+        if w_min > w_max:
+            self.get_logger().warn(f'Invalid yawrate window: w_min={w_min:.3f} > w_max={w_max:.3f}, using current yawrate')
+            w_min = u[1]
+            w_max = u[1]
+        
         return [v_min, v_max, w_min, w_max]
         
     def predict_trajectory(self, x_init, v, w):
@@ -189,9 +226,22 @@ class LocalPlanner(Node):
     def get_local_goal(self, x):
         # Find point on global path ahead of robot
         if self.global_path is None or len(self.global_path.poses) == 0:
+            self.get_logger().warn('Global path is empty')
+            return None
+        
+        # 実際のゴール（グローバルパスの終点）を取得
+        actual_goal = self.global_path.poses[-1]
+        goal_x = actual_goal.pose.position.x
+        goal_y = actual_goal.pose.position.y
+        goal_dist = math.sqrt((x[0]-goal_x)**2 + (x[1]-goal_y)**2)
+        
+        # ゴールに到達したかチェック（実際のゴールとの距離で判定）
+        goal_tolerance = self.get_parameter('goal_tolerance').value
+        if goal_dist < goal_tolerance:
+            self.get_logger().info(f'Goal reached! Distance to goal: {goal_dist:.3f}m')
             return None
             
-        # Find closest point
+        # Find closest point on path
         min_dist = float('inf')
         closest_idx = -1
         
@@ -206,6 +256,9 @@ class LocalPlanner(Node):
         # Look ahead (e.g., 1.0m or 10 indices)
         lookahead_idx = min(closest_idx + 10, len(self.global_path.poses) - 1)
         target = self.global_path.poses[lookahead_idx]
+        
+        self.get_logger().debug(f'Local goal: ({target.pose.position.x:.2f}, {target.pose.position.y:.2f}), closest_idx={closest_idx}, lookahead_idx={lookahead_idx}, goal_dist={goal_dist:.2f}m')
+        
         return [target.pose.position.x, target.pose.position.y]
 
     def calc_to_goal_cost(self, traj, goal):
@@ -222,22 +275,82 @@ class LocalPlanner(Node):
         
         return abs(error)
 
-    def calc_obstacle_cost(self, traj):
+    def get_obstacles(self, robot_pose):
         if self.scan_data is None:
+            return np.empty((0, 2))
+            
+        # Parameters
+        angle_min = self.scan_data.angle_min
+        angle_increment = self.scan_data.angle_increment
+        ranges = np.array(self.scan_data.ranges)
+        
+        # Filter invalid ranges
+        valid_mask = np.isfinite(ranges) & (ranges > 0)
+        valid_ranges = ranges[valid_mask]
+        valid_indices = np.where(valid_mask)[0]
+        
+        if len(valid_ranges) == 0:
+            return np.empty((0, 2))
+            
+        # Calculate angles
+        angles = angle_min + valid_indices * angle_increment
+        
+        # Polar to Cartesian (in laser frame)
+        ox = valid_ranges * np.cos(angles)
+        oy = valid_ranges * np.sin(angles)
+        
+        # Transform to map frame
+        # Robot pose x is [x, y, theta] in map frame (assuming laser is at robot center for simplicity, or use TF if needed)
+        # Ideally we should use TF but for now let's assume base_link ~ laser_link or use the robot pose theta
+        # Simple 2D transform
+        
+        # Rotate
+        c = math.cos(robot_pose[2])
+        s = math.sin(robot_pose[2])
+        
+        # map_x = x * cos - y * sin + tx
+        # map_y = x * sin + y * cos + ty
+        
+        mx = ox * c - oy * s + robot_pose[0]
+        my = ox * s + oy * c + robot_pose[1]
+        
+        return np.vstack((mx, my)).T
+
+    def calc_obstacle_cost(self, traj, obstacles):
+        if len(obstacles) == 0:
             return 0.0
             
-        # Simplified Obstacle Check
         # Check strict collision with robot radius
         robot_radius = self.get_parameter('robot_radius').value
-        min_scan_dist = min(self.scan_data.ranges) # Very simplified
         
-        # If any point in traj is too close to "closest obstacle"
-        # This is strictly incorrect as "closest obstacle" might be behind.
-        # But for simple panic stop:
-        if min_scan_dist < robot_radius:
+        # Trajectory points: traj[:, 0:2] (x, y)
+        traj_points = traj[:, 0:2]
+        
+        # Check distance between all trajectory points and all obstacles
+        # Efficient way: broadcast or scipy.spatial.distance.cdist
+        # Manual broadcast for numpy
+        
+        # traj: (N, 2), obs: (M, 2)
+        # We want simple min distance
+        
+        min_dist = float('inf')
+        
+        # To avoid heavy computation, we can just check simplified
+        # For each point in traj, find closest obstacle
+        
+        for tp in traj_points:
+            diff = obstacles - tp
+            dists_sq = np.sum(diff**2, axis=1)
+            min_d_sq = np.min(dists_sq)
+            if min_d_sq < min_dist:
+                min_dist = min_d_sq
+                
+        min_dist = math.sqrt(min_dist)
+        
+        if min_dist < robot_radius:
             return float('inf')
             
-        return 0.0
+        return 1.0 / min_dist
         
     def publish_local_plan(self, traj):
         path = Path()
